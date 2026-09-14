@@ -90,3 +90,22 @@ Metoda GetFolder() zwraca Folder object który ma:
 - Syntax: `item.GetDetailsOf(shell_folder_item, column_index)`
 - Kolumny: 0=Nazwa, 4=Rozmiar, 3=Data modyfikacji (zależy od systemu)
 - Będzie potrzebna experimentacja z indeksami kolumn
+
+---
+
+## Test 9: Odkrycie poprawnych kolumn dla metadanych
+- **Wynik**: ✅ SUKCES!
+- **Plik**: test_size.py
+- **Znalezione kolumny** (dla Folder.GetDetailsOf):
+  - Column 0: File name (e.g., "Biedronka.jpeg")
+  - Column 1: File type (e.g., "IrfanView JPG File")
+  - Column 2: **SIZE** (e.g., "91,4 KB") - sformatowany string z separatorem tysiąca
+  - Column 3: **MODIFICATION DATE** (e.g., "2026-01-16 10:29") - sformatowany string
+  - Column 6: Unknown (Yes/No)
+  - Column 8: Title/Description
+- **Wnioski**: 
+  - GetDetailsOf() zwraca sformatowane dane jako stringi
+  - Rozmiar w formacie tekstowym z separatorem tysiąca i jednostką (KB, MB, itp)
+  - Data w formacie YYYY-MM-DD HH:MM
+- **Problem**: Będzie trzeba parsować stringi na liczby i datetime obiekty
+- **Rozwiązanie**: Regex lub split do parsowania rozmiaru, datetime.strptime dla daty
