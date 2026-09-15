@@ -350,16 +350,13 @@ def main():
     files_to_show = files[:count] if count else files
     
     print(f"\n[RESULTS] Found {len(files)} files total, showing first {len(files_to_show)}:\n")
-    print("-" * 100)
-    print(f"{'#':<3} {'File Name':<50} {'Size':<12} {'Modified':<20}")
-    print("-" * 100)
     
     for i, file_info in enumerate(files_to_show, 1):
         size_str = format_size(file_info['size'])
         mod_time = file_info['modTime_str'] if file_info['modTime_str'] else "N/A"
-        print(f"{i:<3} {file_info['name']:<50} {size_str:<12} {mod_time:<20}")
-    
-    print("-" * 100)
+        print(f"  [{i}] {file_info['name']}")
+        print(f"       Size: {size_str:>12}  |  Modified: {mod_time}")
+        print()
     
     # Step 5: Copy files
     print(f"\n[NOTE] File copying functionality requires Windows Shell implementation")

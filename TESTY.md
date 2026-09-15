@@ -109,3 +109,39 @@ Metoda GetFolder() zwraca Folder object który ma:
   - Data w formacie YYYY-MM-DD HH:MM
 - **Problem**: Będzie trzeba parsować stringi na liczby i datetime obiekty
 - **Rozwiązanie**: Regex lub split do parsowania rozmiaru, datetime.strptime dla daty
+
+---
+
+## ⚠️ Test 10: PROBLEM Z PRECYZJĄ METADANYCH (2026-09-15)
+- **Obserwacja**: Shell API GetDetailsOf() zwraca dane SFORMATOWANE, nie surowe
+- **Kolumna 2 (Size)**: `"91,4 KB"` - sformatowany string z separatorem tysiąca
+  - **PROBLEM**: Tracimy precyzję - nie wiemy ile to dokładnie bajtów
+  - **Wymaganie**: Potrzebujemy liczby całkowitej (int) - liczby bajtów
+- **Kolumna 3 (Date)**: `"2026-01-16 10:29"` - bez sekund!
+  - **PROBLEM**: Wiadomo kiedy w minucie, ale nie o której dokładnie sekundzie
+  - **Wymaganie**: Potrzebujemy `YYYY-MM-DD HH:MM:SS`
+  - **Wnioski**: Nie można dodawać ":00" sztucznie - to byłoby kłamstwo
+- **Status**: Shell.Application NIE SPEŁNIA wymagań precyzji
+- **Następny krok**: Szukać alternatywnych API:
+  1. Windows Media Foundation (DirectShow) - metadane multimediów
+  2. WMI (Windows Management Instrumentation) - info o plikach systemowych
+  3. DirectX Media Object (DMO) - dekodowanie metadanych
+  4. Bezpośredni dostęp do pliku MTP - raw binary metadata
+  5. libmtp na Windows - jeśli się da zainstalować
+
+---
+
+## ⚠️ Test 11: WAŻNA UWAGA O PROTOKOLE (2026-09-15)
+- Dotychczasowe badania zakładały że to **MTP (Media Transfer Protocol)**
+- **JEDNAK**: Nie wiemy na pewno czy to MTP!
+- **Total Commander sobie radzi** - ma dostęp do plików bez Debug Mode
+- **To oznacza** że Windows ma API dostępu do telefonu
+- **Mogą to być**:
+  - ✅ Rzeczywiście MTP
+  - ✅ WebDAV serwer na telefonie
+  - ✅ UPnP/DLNA device
+  - ✅ FTP/SFTP serwer
+  - ✅ Wbudowany Windows driver
+  - ✅ Coś innego - co Total Commander używa
+- **Strategia**: Badać wszystkie możliwe API, nie tylko MTP
+- **Priorytet**: Dowiedzieć się jak Total Commander osiąga dostęp do telefonu
