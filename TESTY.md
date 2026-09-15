@@ -112,6 +112,25 @@ Metoda GetFolder() zwraca Folder object który ma:
 
 ---
 
+## ✅ Test 10: ROZWIĄZANIE! FolderItem.ExtendedProperty() zwraca SUROWE DANE (2026-09-15)
+- **Obserwacja**: Shell API GetDetailsOf() zwraca dane SFORMATOWANE
+- **Znalezienie**: `FolderItem.ExtendedProperty()` zwraca NIEFORMATOWANE dane!
+- **`System.Size`**: 93635 (integer - liczba bajtów!)
+  - GetDetailsOf kolumna 2: `"91,4 KB"` (sformatowany string)
+  - ExtendedProperty: `93635` (surowe bajty)
+- **`System.DateModified`**: `2026-01-16 08:29:52+00:00` (z sekundami!)
+  - GetDetailsOf kolumna 3: `"2026-01-16 10:29"` (bez sekund, inne timezone)
+  - ExtendedProperty: `pywintypes.datetime` (z sekundami, UTC/inne timezone)
+- **Wnioski**:
+  1. ExtendedProperty jest PRAWIDŁOWYM API do pobrania surowych metadanych MTP
+  2. Rozmiary zwracane w bajtach (integer)
+  3. Czasy zwracane z sekundami (datetime object)
+  4. Czasy mogą być w innej strefie czasowej niż GetDetailsOf
+- **Status**: ✅ PROBLEM ROZWIĄZANY!
+- **Testowany w**: phone_access_v3.py z funkcjami parse_modtime_extended() i format_datetime()
+
+---
+
 ## ⚠️ Test 10: PROBLEM Z PRECYZJĄ METADANYCH (2026-09-15)
 - **Obserwacja**: Shell API GetDetailsOf() zwraca dane SFORMATOWANE, nie surowe
 - **Kolumna 2 (Size)**: `"91,4 KB"` - sformatowany string z separatorem tysiąca

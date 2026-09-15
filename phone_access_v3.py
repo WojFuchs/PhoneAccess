@@ -73,6 +73,54 @@ def parse_modtime(mod_str: str) -> Optional[datetime]:
             return None
 
 
+def parse_modtime_extended(mod_value: Any) -> Optional[datetime]:
+    """
+    Parse ExtendedProperty modification date (can be string or pywintypes.datetime)
+    Returns: datetime object or None
+    """
+    if not mod_value:
+        return None
+    
+    try:
+        # If it's already a datetime object (pywintypes.datetime), convert it
+        if hasattr(mod_value, 'year'):  # Has datetime attributes
+            return datetime(
+                year=mod_value.year,
+                month=mod_value.month,
+                day=mod_value.day,
+                hour=mod_value.hour,
+                minute=mod_value.minute,
+                second=mod_value.second if hasattr(mod_value, 'second') else 0
+            )
+        
+        # If it's a string, parse it
+        mod_str = str(mod_value)
+        
+        # Remove timezone part
+        if '+' in mod_str:
+            date_part = mod_str.split('+')[0].strip()
+        else:
+            date_part = mod_str.strip()
+        
+        # Try YYYY-MM-DD HH:MM:SS format
+        try:
+            return datetime.strptime(date_part, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            # Try YYYY-MM-DD HH:MM format (fallback)
+            return datetime.strptime(date_part, '%Y-%m-%d %H:%M')
+    
+    except Exception as e:
+        print(f"[DEBUG] parse_modtime_extended error: {e}, type={type(mod_value)}, value={mod_value}")
+        return None
+
+
+def format_datetime(dt: datetime) -> str:
+    """Format datetime object to ISO format string with seconds"""
+    if not dt:
+        return ""
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
+
+
 def format_size(bytes_val: int) -> str:
     """Format bytes to human readable format"""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -145,8 +193,11 @@ class AndroidPhoneMTP:
     
     def get_file_details(self, folder_obj: Any, file_item: Any) -> Dict[str, Any]:
         """
-        Get file details using GetDetailsOf
+        Get file details using ExtendedProperty (RAW DATA - not formatted)
         Returns: Dict with name, size, modTime
+        ExtendedProperty gives us:
+        - System.Size: integer (bytes)
+        - System.DateModified: datetime with seconds
         """
         details = {
             'name': str(file_item.Name),
@@ -156,15 +207,36 @@ class AndroidPhoneMTP:
         }
         
         try:
-            # Get size from column 2
+            # Method 1: Try ExtendedProperty (raw data - PREFERRED)
+            try:
+                # System.Size returns bytes as integer
+                size_value = file_item.ExtendedProperty('System.Size')
+                if size_value:
+                    details['size'] = int(size_value)
+                
+                # System.DateModified returns datetime with seconds
+                modtime_value = file_item.ExtendedProperty('System.DateModified')
+                if modtime_value:
+                    # Parse the datetime string (format: "2026-01-16 08:29:52+00:00")
+                    mod_time = parse_modtime_extended(modtime_value)
+                    details['modTime'] = mod_time
+                    details['modTime_str'] = format_datetime(mod_time) if mod_time else ''
+                else:
+                    details['modTime_str'] = ''
+                
+                return details
+            except Exception as e:
+                print(f"[WARN] ExtendedProperty not available, falling back to GetDetailsOf: {e}")
+            
+            # Fallback: Method 2: Use GetDetailsOf (formatted - not ideal but works)
             size_str = folder_obj.GetDetailsOf(file_item, 2)
             details['size'] = parse_size(size_str)
             
-            # Get modification date from column 3
             mod_str = folder_obj.GetDetailsOf(file_item, 3)
             mod_time = parse_modtime(mod_str)
             details['modTime'] = mod_time
             details['modTime_str'] = mod_str if mod_str else ''
+            
         except Exception as e:
             print(f"[WARN] Could not get details for {details['name']}: {e}")
         
