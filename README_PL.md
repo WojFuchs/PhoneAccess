@@ -31,19 +31,29 @@ Napisanie najprostszego możliwego programu, który umożliwi:
 
 ## 🔬 BADANIE: Jaki API/Protokół używa Total Commander?
 
-**Kluczowe obserwacje:**
-- Total Commander widzi Android bez Debug Mode ✅
-- TC nie mapuje telefonu na literę dysku ✅
-- TC wyświetla pliki, ich rozmiary i daty modyfikacji ✅
-- **To oznacza że Windows HAS API dostępu do telefonu bez tych ograniczeń**
+**✅ ODKRYCIE - 2026-09-15**:
+- Total Commander używa **MTP (Media Transfer Protocol)**
+- Windows ma **wbudowany MTP stack** od Vista+
+- Total Commander używa **Windows Shell API COM objects** (jak my!)
+- MTP jest standardem USB/Android od 2011
 
-**Hipotezy do weryfikacji:**
-1. ❓ **Czy to MTP?** - Może być, ale nie wiadomo na pewno
-2. ❓ **Czy to Shell.Application COM API?** - Możliwe, ale GetDetailsOf() może mieć inne źródło danych
-3. ❓ **Czy to UPnP/DLNA?** - Android może być widoczny jako UPnP device
-4. ❓ **Czy to WebDAV lub FTP?** - Android czasem ma usługę WebDAV
-5. ❓ **Czy Windows ma wbudowany sterownik?** - Mogą być system drivers dla USB Android
-6. **✅ JEDNO PEWNE**: Jest to możliwe bez Debug Mode, bez mapowania dysku - musimy to znaleźć!
+**Kluczowa obserwacja**:
+- **Shell API (GetDetailsOf)** zwraca dane SFORMATOWANE dla człowieka:
+  - Rozmiar: `"91,4 KB"` (sformatowany string)
+  - Data: `"2026-01-16 10:29"` (bez sekund)
+- **Ale MTP protocol zawiera surowe dane**:
+  - Rozmiar: liczba bajtów (raw 32/64-bit integer)
+  - Data: timestamp lub sformatowany timestamp (z sekundami)
+- **Wnioski**:
+  1. Shell API nie spełnia wymogów precyzji
+  2. Musimy dostać się do **surowych danych z MTP** 
+  3. **✅ ROZWIĄZANIE**: Biblioteka `Heribert17/mtp` na PyPI
+     - Zwraca `file['size']` jako int (bajty)
+     - Zwraca `file['modification_time']` z sekundami
+     - Instalacja: `pip install mtp`
+     - Wciąż NO Debug Mode, NO drive letters
+
+**Następny krok**: Przetestować `mtp` library i przepisać kod
 
 ## Test końcowy
 Uruchomić z parametrami: `program Pictures 2`
