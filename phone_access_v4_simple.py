@@ -20,119 +20,6 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 
-def parse_size(size_str: str) -> int:
-    """
-    Parse Windows shell file size string to bytes
-    Examples: "91,4 KB", "1,5 MB", "1 234 B"
-    Returns: Size in bytes (int)
-    """
-    if not size_str or size_str.lower() == 'n/a':
-        return 0
-    
-    # Remove spaces and replace comma with dot for consistency
-    size_str = size_str.replace(' ', '').replace(',', '.')
-    
-    # Match number and unit
-    match = re.match(r'([\d.]+)\s*([A-Za-z]+)?', size_str.strip())
-    if not match:
-        return 0
-    
-    value = float(match.group(1))
-    unit = match.group(2).upper() if match.group(2) else 'B'
-    
-    # Convert to bytes
-    multipliers = {
-        'B': 1,
-        'KB': 1024,
-        'MB': 1024 ** 2,
-        'GB': 1024 ** 3,
-        'TB': 1024 ** 4,
-    }
-    
-    multiplier = multipliers.get(unit, 1)
-    return int(value * multiplier)
-
-
-def parse_modtime(mod_str: str) -> Optional[datetime]:
-    """
-    Parse Windows shell modification date string
-    Example: "2026-01-16 10:29"
-    Returns: datetime object or None
-    """
-    if not mod_str or mod_str.lower() == 'n/a':
-        return None
-    
-    try:
-        # Try format YYYY-MM-DD HH:MM
-        return datetime.strptime(mod_str.strip(), '%Y-%m-%d %H:%M')
-    except ValueError:
-        try:
-            # Try other common formats
-            return datetime.strptime(mod_str.strip(), '%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            return None
-
-
-def parse_modtime_extended(mod_value: Any) -> Optional[datetime]:
-    """
-    Parse ExtendedProperty modification date (can be string or pywintypes.datetime)
-    Returns: datetime object or None
-    """
-    if not mod_value:
-        return None
-    
-    try:
-        # If it's already a datetime object (pywintypes.datetime), convert it
-        if hasattr(mod_value, 'year'):  # Has datetime attributes
-            return datetime(
-                year=mod_value.year,
-                month=mod_value.month,
-                day=mod_value.day,
-                hour=mod_value.hour,
-                minute=mod_value.minute,
-                second=mod_value.second if hasattr(mod_value, 'second') else 0
-            )
-        
-        # If it's a string, parse it
-        mod_str = str(mod_value)
-        
-        # Remove timezone part
-        if '+' in mod_str:
-            date_part = mod_str.split('+')[0].strip()
-        else:
-            date_part = mod_str.strip()
-        
-        # Try YYYY-MM-DD HH:MM:SS format
-        try:
-            return datetime.strptime(date_part, '%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            # Try YYYY-MM-DD HH:MM format (fallback)
-            return datetime.strptime(date_part, '%Y-%m-%d %H:%M')
-    
-    except Exception as e:
-        print(f"[DEBUG] parse_modtime_extended error: {e}, type={type(mod_value)}, value={mod_value}")
-        return None
-
-
-def format_datetime(dt: datetime) -> str:
-    """Format datetime object to ISO format string with seconds"""
-    if not dt:
-        return ""
-    return dt.strftime('%Y-%m-%d %H:%M:%S')
-
-
-def format_size(bytes_val: int) -> str:
-    """Format bytes to human readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if bytes_val < 1024:
-            if unit == 'B':
-                return f"{bytes_val:.0f} {unit}"
-            else:
-                return f"{bytes_val:.1f} {unit}"
-        bytes_val /= 1024
-    return f"{bytes_val:.1f} TB"
-
-
 class AndroidPhoneMTP:
     """Access Android phone via Windows MTP (Media Transfer Protocol)"""
     
@@ -143,6 +30,7 @@ class AndroidPhoneMTP:
         self.storage_folder = None
         
         try:
+            # Initialize the Shell.Application COM object for interacting with Windows shell
             self.shell = win32com.client.Dispatch('Shell.Application')
         except Exception as e:
             print(f"ERROR: Could not initialize Shell.Application: {e}")
@@ -150,16 +38,21 @@ class AndroidPhoneMTP:
     
     def detect_device(self) -> bool:
         """Detect connected Android phone"""
-        print("\n[DETECTING] Looking for Android devices...")
+        print("[DETECTING] Looking for Android devices...")
         
         try:
+            # Access the "This PC" namespace to list connected devices
             devices_namespace = self.shell.NameSpace(17)
-            
-            for item in devices_namespace.Items():
+
+            total_devices = len(devices_namespace.Items())
+            for index, item in enumerate(devices_namespace.Items(), start=1):
+                print(f"[INFO] Checking device {index}/{total_devices}: {item.Name} ({item.Type})")
                 if 'motorola' in item.Name.lower() or 'android' in item.Name.lower() or 'phone' in item.Type.lower():
                     self.device_item = item
                     self.device_name = item.Name
                     print(f"[OK] Device found: {self.device_name}")
+                    for field in item.ExtendedPropertyNames:
+                        print(f"[INFO] ExtendedProperty: {field} = {item.ExtendedProperty(field)}")
                     return True
             
             print(f"[ERROR] No Android device found")
@@ -171,11 +64,15 @@ class AndroidPhoneMTP:
     
     def get_storage_folder(self) -> bool:
         """Get the main storage folder"""
+        print("[INFO] Getting main storage folder...")
+
         if not self.device_item:
             print("[ERROR] No device detected")
             return False
         
         try:
+            # Access the device's namespace to list storage folders
+            print(f"[INFO] Accessing device namespace for: {self.device_item.Path}")
             device_ns = self.shell.NameSpace(self.device_item.Path)
             
             for storage_item in device_ns.Items():
@@ -208,40 +105,25 @@ class AndroidPhoneMTP:
         print(f"[INFO] Getting details for file: {details}")
         
         try:
-            # Method 1: Try ExtendedProperty (raw data - PREFERRED)
-            try:
-                # System.Size returns bytes as integer
-                size_value = file_item.ExtendedProperty('System.Size')
-                print(f"[INFO] Size value from ExtendedProperty: {size_value}")
-                if size_value:
-                    details['size'] = int(size_value)
-                
-                # System.DateModified returns datetime with seconds
-                modtime_value = file_item.ExtendedProperty('System.DateModified')
-                print(f"[INFO] Modification time value from ExtendedProperty: {modtime_value}")
-                if modtime_value:
-                    # Parse the datetime string (format: "2026-01-16 08:29:52+00:00")
-                    mod_time = parse_modtime_extended(modtime_value)
-                    details['modTime'] = mod_time
-                    details['modTime_str'] = format_datetime(mod_time) if mod_time else ''
-                else:
-                    details['modTime_str'] = ''
-                
-                return details
-            except Exception as e:
-                print(f"[WARN] ExtendedProperty not available, falling back to GetDetailsOf: {e}")
+            # System.Size returns bytes as integer
+            size_value = file_item.ExtendedProperty('System.Size')
+            print(f"[INFO] Size value from ExtendedProperty: {size_value}")
+            if size_value:
+                details['size'] = int(size_value)
             
-            # Fallback: Method 2: Use GetDetailsOf (formatted - not ideal but works)
-            size_str = folder_obj.GetDetailsOf(file_item, 2)
-            print(f"[INFO] Size string from GetDetailsOf: {size_str}")
-            details['size'] = parse_size(size_str)
+            # System.DateModified returns datetime with seconds
+            modtime_value = file_item.ExtendedProperty('System.DateModified')
+            print(f"[INFO] Modification time value from ExtendedProperty: {modtime_value} (type: {type(modtime_value)})")
+            if modtime_value:
+                # Parse the datetime string (format: "2026-01-16 08:29:52+00:00")
+                mod_time = modtime_value.astimezone().replace(tzinfo=None)
+                print(f"[INFO] Converted modification time to local naive datetime: {mod_time}")
+                details['modTime'] = mod_time
+                details['modTime_str'] = mod_time.strftime('%Y-%m-%d %H:%M:%S') if mod_time else ''
+            else:
+                details['modTime_str'] = ''
             
-            mod_str = folder_obj.GetDetailsOf(file_item, 3)
-            print(f"[INFO] Modification time string from GetDetailsOf: {mod_str}")
-            mod_time = parse_modtime(mod_str)
-            details['modTime'] = mod_time
-            details['modTime_str'] = mod_str if mod_str else ''
-            
+            return details            
         except Exception as e:
             print(f"[WARN] Could not get details for {details['name']}: {e}")
         
@@ -249,6 +131,7 @@ class AndroidPhoneMTP:
     
     def list_files_recursive(self, folder_obj: Any, folder_name: str = "", max_depth: int = 10, current_depth: int = 0) -> List[Dict[str, Any]]:
         """Recursively list all files from a folder"""
+        print(f"[INFO] Listing files in folder: {folder_name} (depth {current_depth})")
         files = []
         
         if current_depth >= max_depth:
@@ -260,10 +143,6 @@ class AndroidPhoneMTP:
             for item in items:
                 try:
                     item_name = str(item.Name)
-                    
-                    # Skip system/hidden items
-                    if item_name.startswith('.'):
-                        continue
                     
                     # Build the path
                     current_path = f"{folder_name}/{item_name}" if folder_name else item_name
@@ -303,11 +182,11 @@ class AndroidPhoneMTP:
     
     def list_folder(self, folder_name: str) -> List[Dict[str, Any]]:
         """List files in a specific folder"""
+        print(f"[INFO] Listing folder: {folder_name}")
+
         if not self.storage_folder:
             print("[ERROR] Storage not accessed")
             return []
-        
-        print(f"\n[LISTING] Searching for folder: {folder_name}")
         
         try:
             for item in self.storage_folder.Items():
@@ -336,6 +215,8 @@ class AndroidPhoneMTP:
     
     def copy_files(self, files: List[Dict[str, Any]], count: int = None, dest_folder: str = None) -> int:
         """Copy files from phone to Windows"""
+        print(f"[INFO] Copy files: {len(files)} files")
+
         if not files:
             print("[ERROR] No files to copy")
             return 0
@@ -347,7 +228,7 @@ class AndroidPhoneMTP:
         
         files_to_copy = files[:count] if count else files
         
-        print(f"\n[COPYING] Copying {len(files_to_copy)} files to: {dest_folder}")
+        print(f"[COPYING] Copying {len(files_to_copy)} files to: {dest_folder}")
         
         copied_count = 0
         
@@ -365,8 +246,8 @@ class AndroidPhoneMTP:
                 else:
                     dst_path = os.path.join(dest_folder, file_name)
                 
-                size_str = format_size(file_info['size'])
-                print(f"  [{i}/{len(files_to_copy)}] {file_name[:45]:<45} ({size_str:>9})...", end=" ")
+                size = file_info['size']
+                print(f"  [{i}/{len(files_to_copy)}] {file_name[:45]:<45} ({size:>11})...", end=" ")
                 
                 # Copy via shell using Copy verb
                 try:
@@ -382,7 +263,7 @@ class AndroidPhoneMTP:
                 print(f"FAILED: {str(e)[:30]}")
                 continue
         
-        print(f"\n[DONE] Queued {copied_count}/{len(files_to_copy)} files for copy")
+        print(f"[DONE] Queued {copied_count}/{len(files_to_copy)} files for copy")
         return copied_count
 
 
@@ -429,10 +310,10 @@ def main():
     print(f"\n[RESULTS] Found {len(files)} files total, showing first {len(files_to_show)}:\n")
     
     for i, file_info in enumerate(files_to_show, 1):
-        size_str = format_size(file_info['size'])
+        size = file_info['size']
         mod_time = file_info['modTime_str'] if file_info['modTime_str'] else "N/A"
         print(f"  [{i}] {file_info['name']}")
-        print(f"       Size: {size_str:>12}  |  Modified: {mod_time}")
+        print(f"       Size: {size:>11}  |  Modified: {mod_time}")
         print()
     
     # Step 5: Copy files
